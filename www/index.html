@@ -10,28 +10,35 @@
   <meta name="theme-color" content="#071022">
   <style>
     :root{--bg:#0b1220;--card:#0f1724;--accent:#ffcc00;color:#fff}
-    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
-    body{display:flex;flex-direction:column;align-items:center;justify-content:space-between;background:radial-gradient(circle at center,#1b1d28 0%,#08090c 100%);color:#fff;min-height:100vh}
-    h1{margin:15px 0 6px;font-size:1.6rem;font-weight:300;letter-spacing:3px;color:#f0f0f0;text-shadow:0 0 10px rgba(255,255,255,.12)}
-    #canvas-container{width:100%;height:48vh;display:flex;align-items:center;justify-content:center;cursor:grab}
-    #canvas-container:active{cursor:grabbing}
-    .ui-container{width:100%;max-width:360px;padding:15px 20px 25px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}
-    .mode-selector{display:flex;gap:6px;justify-content:space-between;background:rgba(255,255,255,0.04);padding:6px;border-radius:20px;border:1px solid #222}
-    .mode-btn{flex:1;padding:8px;border:0;background:transparent;color:#aaa;font-size:12px;font-weight:700;border-radius:14px;cursor:pointer;transition:all .15s}
-    .mode-btn.active{background:#fff;color:#111;box-shadow:0 4px 18px rgba(255,255,255,.06)}
-    input{width:100%;padding:12px 16px;border-radius:25px;border:1px solid #333;background:rgba(255,255,255,0.04);color:#fff;font-size:14px;text-align:center;outline:none}
-    input:focus{border-color:#fff;box-shadow:0 0 10px rgba(255,255,255,.06)}
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:var(--bg)}
+    body{display:flex;flex-direction:column;align-items:center;justify-content:space-between;color:#fff;min-height:100vh}
+    h1{margin:12px 0;font-size:1.4rem;font-weight:600;letter-spacing:2px;color:#fff}
+    #canvas-wrap{width:100%;height:48vh;display:flex;align-items:center;justify-content:center;position:relative}
+    #canvas-container{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+    canvas{display:block;width:100%;height:100%}
+    .ui-container{width:100%;max-width:420px;padding:12px 18px 22px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}
+    .mode-selector{display:flex;gap:6px;justify-content:space-between;background:rgba(255,255,255,0.02);padding:6px;border-radius:20px;border:1px solid rgba(255,255,255,0.03)}
+    .mode-btn{flex:1;padding:8px;border:0;background:transparent;color:#ddd;font-size:13px;font-weight:700;border-radius:14px;cursor:pointer}
+    .mode-btn.active{background:#fff;color:#111}
+    input{width:100%;padding:12px 16px;border-radius:25px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);color:#fff;font-size:14px;text-align:center}
     .action-row{display:flex;gap:8px}
     .action-btn{flex:1;padding:12px;border-radius:20px;border:0;background:var(--accent);color:#111;font-weight:800;cursor:pointer}
-    .share-btn{background:transparent;border:1px solid rgba(255,255,255,.08);color:#ddd;padding:10px;font-size:13px;display:none}
+    .share-btn{padding:10px;border-radius:20px;border:1px solid rgba(255,255,255,0.08);color:#ddd;background:transparent;cursor:pointer}
     .hint{font-size:12px;color:#99a;text-align:center}
-    footer{margin:12px 0 18px;font-size:12px;color:#99a}
+    footer{margin:10px 0 18px;font-size:12px;color:#99a}
+
+    /* overlay to unlock audio/interaction */
+    #startOverlay{position:absolute;left:0;top:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(rgba(3,6,10,0.6),rgba(3,6,10,0.2));z-index:50}
+    #startOverlay button{background:var(--accent);border:none;padding:12px 20px;border-radius:18px;font-weight:800;color:#111}
   </style>
 </head>
 <body>
   <h1>BOLA 22 MÁGICA</h1>
 
-  <div id="canvas-container" aria-hidden="true"></div>
+  <div id="canvas-wrap">
+    <div id="canvas-container" aria-hidden="true"></div>
+    <div id="startOverlay" aria-hidden="false"><button id="startBtn">Toca para iniciar</button></div>
+  </div>
 
   <div class="ui-container">
     <div class="mode-selector" role="tablist" aria-label="Modos">
@@ -41,7 +48,7 @@
       <button class="mode-btn" id="modeMotiv">Hype</button>
     </div>
 
-    <input id="question" type="text" placeholder="Escribe tu pregunta de SÍ o NO..." onkeypress="if(event.key==='Enter') askOracle()" />
+    <input id="question" type="text" placeholder="Escribe tu pregunta de SÍ o NO..." />
 
     <div class="action-row">
       <button class="action-btn" id="askBtn">Agitar y Consultar</button>
@@ -55,40 +62,55 @@
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script>
+  // --- utilities and state ---
   const answerPacks = {
-    classic: ["ES CIERTO","SÍ TOTALMENTE","SIN DUDAS","CONFÍA EN ELLO","PARECE QUE SÍ","MUY PROBABLE","SÍ","NO ESTOY SEGURO","INTENTA OTRA VEZ","NO"],
-    sarcastic: ["¿EN SERIO?","NI LO SUEÑES","JAJAJA NO","BUSCA TRABAJO","PREGUNTA OTRA VEZ","OBVIO QUE NO","NO TE HAGAS ILUSIONES"],
+    classic: ["ES CIERTO","SÍ TOTALMENTE","SIN DUDAS","CONFÍA EN ELLO","PARECE QUE SÍ","MUY PROBABLE","SÍ","NO"],
+    sarcastic: ["¿EN SERIO?","NI LO SUEÑES","JAJAJA NO","OBVIO QUE NO","NO TE HAGAS ILUSIONES"],
     mystic: ["ALINEACIÓN A FAVOR","EL COSMOS DICE SÍ","DESTINO INCIERTO","ENERGÍA BLOQUEADA","SÍ, SE REVELA"],
     motiv: ["¡A POR ELLO!","¡SÍ O SÍ!","¡ROMPE EL LÍMITE!","¡CON TODO!","¡HOY SE LOGRA!"]
   };
-
   let currentMode = 'classic';
-  let lastAnswer = '';
   let audioCtx = null;
 
-  function initAudio(){ try{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch(e){}
-  }
-  function playClick(){ initAudio(); if(!audioCtx) return; const o=audioCtx.createOscillator(); const g=audioCtx.createGain(); o.type='sine'; o.frequency.setValueAtTime(700,audioCtx.currentTime); o.connect(g); g.connect(audioCtx.destination); g.gain.setValueAtTime(0.001,audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.2,audioCtx.currentTime+0.02); o.start(); setTimeout(()=>{ g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.12); setTimeout(()=>o.stop(),150); },80); }
-  function playFluid(){ initAudio(); if(!audioCtx) return; const buf=audioCtx.createBuffer(1, audioCtx.sampleRate*0.4, audioCtx.sampleRate); const d=buf.getChannelData(0); for(let i=0;i<d.length;i++){ d[i]=(Math.random()*2-1)*Math.exp(-i/d.length*4); } const src=audioCtx.createBufferSource(); src.buffer=buf; const g=audioCtx.createGain(); g.gain.value=0.12; src.connect(g); g.connect(audioCtx.destination); src.start(); }
-  function playImpact(){ initAudio(); if(!audioCtx) return; const o=audioCtx.createOscillator(); const g=audioCtx.createGain(); o.type='triangle'; o.frequency.setValueAtTime(120,audioCtx.currentTime); o.connect(g); g.connect(audioCtx.destination); g.gain.setValueAtTime(0.001,audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.3,audioCtx.currentTime+0.02); o.start(); setTimeout(()=>{ g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.14); setTimeout(()=>o.stop(),160); },120); }
+  function initAudio(){ try{ if(!audioCtx){ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); } if(audioCtx.state==='suspended') audioCtx.resume(); }catch(e){ console.warn('Audio init failed', e); audioCtx = null; }}
+  function playClick(){ if(!audioCtx) return; const o=audioCtx.createOscillator(); const g=audioCtx.createGain(); o.type='sine'; o.frequency.setValueAtTime(700,audioCtx.currentTime); o.connect(g); g.connect(audioCtx.destination); g.gain.setValueAtTime(0.001,audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.2,audioCtx.currentTime+0.02); o.start(); setTimeout(()=>{ g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.12); setTimeout(()=>o.stop(),150); },80); }
+  function playFluid(){ if(!audioCtx) return; const buf=audioCtx.createBuffer(1, audioCtx.sampleRate*0.35, audioCtx.sampleRate); const d=buf.getChannelData(0); for(let i=0;i<d.length;i++){ d[i]=(Math.random()*2-1)*Math.exp(-i/d.length*4);} const s=audioCtx.createBufferSource(); s.buffer=buf; const g=audioCtx.createGain(); g.gain.value=0.12; s.connect(g); g.connect(audioCtx.destination); s.start(); }
+  function playImpact(){ if(!audioCtx) return; const o=audioCtx.createOscillator(); const g=audioCtx.createGain(); o.type='triangle'; o.frequency.setValueAtTime(120,audioCtx.currentTime); o.connect(g); g.connect(audioCtx.destination); g.gain.setValueAtTime(0.001,audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.3,audioCtx.currentTime+0.02); o.start(); setTimeout(()=>{ g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+0.14); setTimeout(()=>o.stop(),160); },120); }
 
-  function setMode(mode, btn){ currentMode = mode; document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); playClick(); }
+  function setMode(mode, btn){ currentMode = mode; document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active')); btn.classList.add('active'); try{ playClick(); }catch(e){} }
 
   function webglSupported(){ try{ const c=document.createElement('canvas'); return !!(window.WebGLRenderingContext && (c.getContext('webgl') || c.getContext('experimental-webgl'))); }catch(e){return false;} }
 
+  // --- main init after user taps start ---
   window.addEventListener('load', ()=>{
+    const overlay = document.getElementById('startOverlay');
+    const startBtn = document.getElementById('startBtn');
+
+    startBtn.addEventListener('click', ()=>{
+      // init audio and remove overlay
+      initAudio(); overlay.style.display='none'; overlay.setAttribute('aria-hidden','true');
+      try{ initApp(); }catch(e){ console.error('initApp failed', e); }
+    });
+  });
+
+  function initApp(){
     if(!webglSupported()){ document.getElementById('canvas-container').innerHTML = '<div style="color:#fff;padding:20px;text-align:center">Tu navegador no soporta WebGL. Prueba en Chrome/Edge.</div>'; return; }
 
     const container = document.getElementById('canvas-container');
+    // create renderer sized to container and keep CSS aspect stable
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / Math.max(container.clientHeight,200), 0.1, 1000);
     camera.position.z = 6;
     const renderer = new THREE.WebGLRenderer({antialias:true,alpha:true, preserveDrawingBuffer:true});
     renderer.setSize(container.clientWidth, container.clientHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+    container.innerHTML = '';
     container.appendChild(renderer.domElement);
+    // ensure canvas style doesn't rotate
+    renderer.domElement.style.transform = 'none';
+    renderer.domElement.style.width = '100%'; renderer.domElement.style.height = '100%';
 
-    const amb = new THREE.AmbientLight(0xffffff,0.9); scene.add(amb);
+    const amb = new THREE.AmbientLight(0xffffff,0.95); scene.add(amb);
     const dir = new THREE.DirectionalLight(0xffffff,0.8); dir.position.set(5,5,5); scene.add(dir);
 
     const ballGroup = new THREE.Group(); scene.add(ballGroup);
@@ -98,7 +120,7 @@
     const canvas22 = document.createElement('canvas'); canvas22.width=512; canvas22.height=512; const ctx22 = canvas22.getContext('2d');
     function draw22(){ ctx22.clearRect(0,0,512,512); ctx22.fillStyle='#ffffff'; ctx22.beginPath(); ctx22.arc(256,256,200,0,Math.PI*2); ctx22.fill(); ctx22.fillStyle='#000000'; ctx22.font='Bold 220px Arial'; ctx22.textAlign='center'; ctx22.fillText('22',256,320); }
     draw22();
-    const poolTag = new THREE.Mesh(new THREE.PlaneGeometry(1.6,1.6), new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(canvas22), transparent:true})); poolTag.position.z = 2.01; ballGroup.add(poolTag);
+    const poolTag = new THREE.Mesh(new THREE.PlaneGeometry(1.6,1.6), new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(canvas22), transparent:true})); poolTag.position.set(0,0,2.01); ballGroup.add(poolTag);
 
     // window/frame and response triangle
     const windowGroup = new THREE.Group(); windowGroup.position.z = -2; windowGroup.rotation.y = Math.PI; ballGroup.add(windowGroup);
@@ -108,30 +130,30 @@
     const responseCanvas = document.createElement('canvas'); responseCanvas.width=512; responseCanvas.height=512; const responseCtx = responseCanvas.getContext('2d'); const responseTexture = new THREE.CanvasTexture(responseCanvas);
     function updateResponseTexture(text){ responseCtx.clearRect(0,0,512,512); responseCtx.fillStyle='#0044ff'; responseCtx.beginPath(); responseCtx.moveTo(256,50); responseCtx.lineTo(460,410); responseCtx.lineTo(52,410); responseCtx.closePath(); responseCtx.fill(); responseCtx.strokeStyle='#66a3ff'; responseCtx.lineWidth=10; responseCtx.stroke(); responseCtx.fillStyle='#ffffff'; responseCtx.font='Bold 40px Arial'; responseCtx.textAlign='center'; responseCtx.textBaseline='middle'; const words=text.split(' '); if(words.length<=2){ responseCtx.fillText(text,256,290);} else { const mid=Math.ceil(words.length/2); responseCtx.fillText(words.slice(0,mid).join(' '),256,260); responseCtx.fillText(words.slice(mid).join(' '),256,320);} responseTexture.needsUpdate = true; }
 
-    const triangleMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.3,1.3), new THREE.MeshBasicMaterial({map:responseTexture, transparent:true})); triangleMesh.position.z = 0.05; triangleMesh.visible = false; windowGroup.add(triangleMesh);
+    const triangleMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.3,1.3), new THREE.MeshBasicMaterial({map:responseTexture, transparent:true}));
+    triangleMesh.position.set(0,0,0.05);
+    triangleMesh.visible = false; windowGroup.add(triangleMesh);
 
-    // control state
-    let isAnimating = false; let targetRotationY = 0; let resetTimer = null; let restoreTimer = null;
+    // state
+    let isAnimating=false; let targetRotationY=0; let resetTimer=null; let restoreTimer=null; let lastAnswer='';
 
     function askOracle(){
       const q = (document.getElementById('question').value||'').trim(); if(!q){ alert('Haz una pregunta primero.'); return; }
-      if(isAnimating) return; isAnimating = true; document.getElementById('shareBtn').style.display='none'; playClick(); if(resetTimer) clearTimeout(resetTimer); if(restoreTimer) clearTimeout(restoreTimer);
-      playFluid(); if('vibrate' in navigator) navigator.vibrate([50,40,80]);
+      if(isAnimating) return; isAnimating=true; document.getElementById('shareBtn').style.display='none'; try{ playClick(); }catch(e){}
+      if(resetTimer) clearTimeout(resetTimer); if(restoreTimer) clearTimeout(restoreTimer);
+      try{ playFluid(); if('vibrate' in navigator) navigator.vibrate([50,40,80]); }catch(e){}
       const pack = answerPacks[currentMode] || answerPacks.classic; lastAnswer = pack[Math.floor(Math.random()*pack.length)]; updateResponseTexture(lastAnswer);
-      // hide 22 and show triangle
       poolTag.visible = false; triangleMesh.visible = true; triangleMesh.material.map = responseTexture; triangleMesh.material.needsUpdate = true;
-
-      targetRotationY = Math.PI; let startTime = performance.now(); let impactPlayed=false;
-      function animateSeq(){ let elapsed=(performance.now()-startTime)/1000; if(elapsed<0.5){ ballGroup.rotation.z = Math.sin(elapsed*25)*0.05; requestAnimationFrame(animateSeq);} else if(elapsed<1.8){ let progress=(elapsed-0.5)/1.3; ballGroup.rotation.z = THREE.MathUtils.lerp(ballGroup.rotation.z,0,0.08); requestAnimationFrame(animateSeq);} else { ballGroup.rotation.z=0; isAnimating=false; document.getElementById('shareBtn').style.display='inline-block'; resetTimer = setTimeout(()=>{ targetRotationY = 0; },3000); }
-      }
+      targetRotationY = Math.PI; let startTime = performance.now();
+      function animateSeq(){ let elapsed=(performance.now()-startTime)/1000; if(elapsed<0.5){ ballGroup.rotation.z = Math.sin(elapsed*25)*0.05; requestAnimationFrame(animateSeq);} else if(elapsed<1.8){ let progress=(elapsed-0.5)/1.3; ballGroup.rotation.z = THREE.MathUtils.lerp(ballGroup.rotation.z,0,0.08); requestAnimationFrame(animateSeq);} else { ballGroup.rotation.z=0; isAnimating=false; document.getElementById('shareBtn').style.display='inline-block'; resetTimer = setTimeout(()=>{ targetRotationY=0; },3000);} }
       animateSeq();
       // restore 22 after 10s
-      restoreTimer = setTimeout(()=>{ triangleMesh.visible = false; poolTag.visible = true; updateResponseTexture('HAZ UNA PREGUNTA'); }, 10000);
+      restoreTimer = setTimeout(()=>{ triangleMesh.visible=false; poolTag.visible=true; updateResponseTexture('HAZ UNA PREGUNTA'); },10000);
     }
 
     document.getElementById('askBtn').addEventListener('click', askOracle);
 
-    // share implementation
+    // share implementation with fallback
     function shareResult(){
       try{
         const shareCanvas = document.createElement('canvas'); shareCanvas.width=1080; shareCanvas.height=1080; const sCtx = shareCanvas.getContext('2d'); sCtx.fillStyle='#08090c'; sCtx.fillRect(0,0,1080,1080);
@@ -145,32 +167,36 @@
             navigator.share({title:'Mi respuesta de Bola 22',text:`Pregunté "${document.getElementById('question').value||''}"`,files:[file]}).catch(()=>{ downloadBlob(blob); });
           } else { downloadBlob(blob); }
         },'image/png');
-      }catch(e){ console.error(e); }
+      }catch(e){ console.error('share failed', e); }
     }
     function downloadBlob(blob){ const link=document.createElement('a'); link.download='bola22_respuesta.png'; link.href = URL.createObjectURL(blob); link.click(); setTimeout(()=>URL.revokeObjectURL(link.href),2000); }
     document.getElementById('shareBtn').addEventListener('click', shareResult);
 
-    // pointer interaction for rotation
-    let isDragging=false; let prev={x:0,y:0};
-    container.addEventListener('pointerdown',(e)=>{ initAudio(); if(resetTimer) clearTimeout(resetTimer); isDragging=true; prev={x:e.clientX,y:e.clientY}; });
-    window.addEventListener('pointermove',(e)=>{ if(!isDragging || isAnimating) return; ballGroup.rotation.y += (e.clientX - prev.x)*0.01; ballGroup.rotation.x += (e.clientY - prev.y)*0.01; prev={x:e.clientX,y:e.clientY}; });
+    // pointer controls
+    let isDragging=false; let prevMouse={x:0,y:0};
+    container.addEventListener('pointerdown',(e)=>{ initAudio(); if(resetTimer) clearTimeout(resetTimer); isDragging=true; prevMouse={x:e.clientX,y:e.clientY}; });
+    window.addEventListener('pointermove',(e)=>{ if(!isDragging || isAnimating) return; const dx=(e.clientX - prevMouse.x); const dy=(e.clientY - prevMouse.y); ballGroup.rotation.y += dx*0.01; ballGroup.rotation.x += dy*0.01; prevMouse={x:e.clientX,y:e.clientY}; });
     window.addEventListener('pointerup',()=> isDragging=false);
 
-    // render loop
+    // animate loop
     function animate(){ requestAnimationFrame(animate); if(isAnimating){ ballGroup.rotation.y = THREE.MathUtils.lerp(ballGroup.rotation.y, targetRotationY, 0.08); } renderer.render(scene,camera); }
     updateResponseTexture('HAZ UNA PREGUNTA'); animate();
 
+    // resize handling
     window.addEventListener('resize',()=>{ camera.aspect = container.clientWidth / Math.max(container.clientHeight,200); camera.updateProjectionMatrix(); renderer.setSize(container.clientWidth, container.clientHeight); });
 
     // register service worker
-    if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
+    if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch((e)=>{ console.warn('SW register failed', e); }); }
 
     // wire mode buttons
     document.getElementById('modeClassic').addEventListener('click', ()=>setMode('classic', document.getElementById('modeClassic')));
     document.getElementById('modeSarcastic').addEventListener('click', ()=>setMode('sarcastic', document.getElementById('modeSarcastic')));
     document.getElementById('modeMystic').addEventListener('click', ()=>setMode('mystic', document.getElementById('modeMystic')));
     document.getElementById('modeMotiv').addEventListener('click', ()=>setMode('motiv', document.getElementById('modeMotiv')));
-  });
+
+    // expose some debug info
+    console.log('Bola22 initialized — WebGL ok, audio available:', !!audioCtx);
+  }
   </script>
 </body>
 </html>
