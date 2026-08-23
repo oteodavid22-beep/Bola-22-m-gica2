@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Bola 22 Mágica</title>
+  <meta name="description" content="Bola 22 Mágica - imita la bola mágica retro con modos y compartir" />
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/assets/icon.svg">
+  <meta name="theme-color" content="#071022">
+  <style>
+    :root{--bg:#0b1220;--card:#0f1724;--accent:#ffcc00;color:#fff}
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    body{display:flex;flex-direction:column;align-items:center;justify-content:space-between;background:radial-gradient(circle at center,#1b1d28 0%,#08090c 100%);color:#fff;min-height:100vh}
+    h1{margin:15px 0 6px;font-size:1.6rem;font-weight:300;letter-spacing:3px;color:#f0f0f0;text-shadow:0 0 10px rgba(255,255,255,.12)}
+    #canvas-container{width:100%;height:48vh;display:flex;align-items:center;justify-content:center;cursor:grab}
+    #canvas-container:active{cursor:grabbing}
+    .ui-container{width:100%;max-width:360px;padding:15px 20px 25px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}
+    .mode-selector{display:flex;gap:6px;justify-content:space-between;background:rgba(255,255,255,0.04);padding:6px;border-radius:20px;border:1px solid #222}
+    .mode-btn{flex:1;padding:8px;border:0;background:transparent;color:#aaa;font-size:12px;font-weight:700;border-radius:14px;cursor:pointer;transition:all .15s}
+    .mode-btn.active{background:#fff;color:#111;box-shadow:0 4px 18px rgba(255,255,255,.06)}
+    input{width:100%;padding:12px 16px;border-radius:25px;border:1px solid #333;background:rgba(255,255,255,0.04);color:#fff;font-size:14px;text-align:center;outline:none}
+    input:focus{border-color:#fff;box-shadow:0 0 10px rgba(255,255,255,.06)}
+    .action-row{display:flex;gap:8px}
+    .action-btn{flex:1;padding:12px;border-radius:20px;border:0;background:var(--accent);color:#111;font-weight:800;cursor:pointer}
+    .share-btn{background:transparent;border:1px solid rgba(255,255,255,.08);color:#ddd;padding:10px;font-size:13px;display:none}
+    .hint{font-size:12px;color:#99a;text-align:center}
+    .banner-ad{width:100%;max-width:360px;margin:8px auto;text-align:center;color:#bbb;font-size:12px}
+    footer{margin:12px 0 18px;font-size:12px;color:#99a}
+  </style>
+</head>
+<body>
+  <h1>BOLA 22 MÁGICA</h1>
+
+  <div id="canvas-container" aria-hidden="true"></div>
+
+  <div class="ui-container">
+    <div class="mode-selector" role="tablist" aria-label="Modos">
+      <button class="mode-btn active" onclick="setMode('classic', this)">Clásico</button>
+      <button class="mode-btn" onclick="setMode('sarcastic', this)">Sarcástico</button>
+      <button class="mode-btn" onclick="setMode('mystic', this)">Místico</button>
+      <button class="mode-btn" onclick="setMode('motiv', this)">Hype</button>
+    </div>
+
+    <input id="question" type="text" placeholder="Escribe tu pregunta de SÍ o NO..." onkeypress="handleKey(event)" aria-label="Pregunta" />
+
+    <div class="action-row">
+      <button class="action-btn" onclick="askOracle()">Agitar y Consultar</button>
+      <button id="shareBtn" class="share-btn" onclick="shareResult()">Compartir</button>
+    </div>
+
+    <div class="hint">Arrastra para girar 360° · Cambia de modo para distintas vibras</div>
+  </div>
+
+  <div class="banner-ad" aria-hidden="true">
+    <div style="background:rgba(255,255,255,0.02);padding:8px;border-radius:10px">Espacio publicitario</div>
+  </div>
+
+  <footer>Hecha con Capacitor · Lista para compilar en Android</footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+  // --- Respuestas por modo ---
+  const answerPacks = {
+    classic: ["ES CIERTO","SÍ TOTALMENTE","SIN DUDAS","CONFÍA EN ELLO","PARECE QUE SÍ","MUY PROBABLE","SEÑALES APUNTAN SÍ","SÍ","DUDA LUEGO","NO PUEDO PREDECIR","CONCÉNTRATE Y PREGUNTA","REPETIR PREGUNTA","NO CUENTES CON ELLO","MI RESPUESTA ES NO","FUENTES DICEN NO","NO APUNTA BIEN","MUY DUDOSO","DEFINITIVAMENTE NO","NO LO CREO","IMPOSIBLE"],
+    sarcastic: ["¿EN SERIO?","NI LO SUEÑES","JAJAJA NO","BUSCA TRABAJO","PREGUNTA OTRA VEZ","OBVIO QUE NO","NO SEA TERCO","CLARO, CAMPEÓN","SUERTE CON ESO","SÍ, EN OTRA VIDA","Y YO SOY UN YETI","MEJOR NO DIGO","¿OTRA VEZ TÚ?","CERO CHANCES","PROBABLEMENTE NO","DÉJAME DORMIR"],
+    mystic: ["ALINEACIÓN A FAVOR","EL COSMOS DICE SÍ","SOMBRAS EN DUDA","DESTINO INCIERTO","AURA POSITIVA","ENERGÍA BLOQUEADA","RITUAL INCOMPLETO","SÍ, SE REVELA","SEÑAL OSCURA","FLUJO A FAVOR","NO ES EL MOMENTO","LUNA ADVIERTE NO"],
+    motiv: ["¡A POR ELLO!","¡SÍ O SÍ!","¡ROMPE EL LÍMITE!","¡100% SEGURO!","¡MODO BESTIA!","¡NADA TE FRENA!","¡DALE SIN MIEDO!","¡ACELERADORES!","¡RECALCULANDO!","¡CON TODO!","¡HOY SE LOGRA!","¡LLEGA TU HORA!"]
+  };
+
+  let currentMode = 'classic';
+  let lastAnswer = '';
+  let lastQuestion = '';
+
+  function setMode(mode, btn){
+    currentMode = mode;
+    document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    playButtonClickSound();
+  }
+
+  // ---- Three.js scene ----
+  const container = document.getElementById('canvas-container');
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, container.clientWidth / Math.max(container.clientHeight, 200), 0.1, 1000);
+  camera.position.z = 6;
+  const renderer = new THREE.WebGLRenderer({antialias:true,alpha:true, preserveDrawingBuffer:true});
+  renderer.setSize(container.clientWidth, container.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  container.appendChild(renderer.domElement);
+
+  scene.add(new THREE.AmbientLight(0xffffff,0.8));
+  const dirLight = new THREE.DirectionalLight(0xffffff,1.0); dirLight.position.set(5,5,5); scene.add(dirLight);
+
+  const ballGroup = new THREE.Group(); scene.add(ballGroup);
+  const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(2,64,64), new THREE.MeshStandardMaterial({color:0x800020, roughness:0.1, metalness:0.2}));
+  ballGroup.add(ballMesh);
+
+  // white circle with 22
+  const canvas22 = document.createElement('canvas'); canvas22.width=512; canvas22.height=512; const ctx22 = canvas22.getContext('2d');
+  ctx22.fillStyle='#ffffff'; ctx22.beginPath(); ctx22.arc(256,256,200,0,Math.PI*2); ctx22.fill(); ctx22.fillStyle='#000000'; ctx22.font='Bold 220px Arial'; ctx22.textAlign='center'; ctx22.textBaseline='middle'; ctx22.fillText('22',256,260);
+  const poolTag = new THREE.Mesh(new THREE.PlaneGeometry(1.6,1.6), new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(canvas22), transparent:true})); poolTag.position.z=2.01; ballGroup.add(poolTag);
+
+  const windowGroup = new THREE.Group(); windowGroup.position.z=-2; windowGroup.rotation.y=Math.PI; ballGroup.add(windowGroup);
+  const frameMesh = new THREE.Mesh(new THREE.RingGeometry(0.85,1.1,32), new THREE.MeshBasicMaterial({color:0x111111})); frameMesh.position.z=0.02; windowGroup.add(frameMesh);
+  const glassMesh = new THREE.Mesh(new THREE.CircleGeometry(0.85,32), new THREE.MeshBasicMaterial({color:0x001a4d, transparent:true, opacity:0.85})); glassMesh.position.z=0.01; windowGroup.add(glassMesh);
+
+  const dieGroup = new THREE.Group(); dieGroup.position.set(0,0,-1.0); windowGroup.add(dieGroup);
+  const responseCanvas = document.createElement('canvas'); responseCanvas.width=512; responseCanvas.height=512; const responseCtx = responseCanvas.getContext('2d'); const responseTexture = new THREE.CanvasTexture(responseCanvas);
+
+  function updateResponseTexture(text){
+    responseCtx.clearRect(0,0,512,512);
+    responseCtx.fillStyle='#0044ff'; responseCtx.beginPath(); responseCtx.moveTo(256,50); responseCtx.lineTo(460,410); responseCtx.lineTo(52,410); responseCtx.closePath(); responseCtx.fill();
+    responseCtx.strokeStyle='#66a3ff'; responseCtx.lineWidth=10; responseCtx.stroke();
+    responseCtx.fillStyle='#ffffff'; responseCtx.font='Bold 40px Arial'; responseCtx.textAlign='center'; responseCtx.textBaseline='middle';
+    const words = text.split(' ');
+    if(words.length<=2){ responseCtx.fillText(text,256,290); } else { const mid=Math.ceil(words.length/2); responseCtx.fillText(words.slice(0,mid).join(' '),256,260); responseCtx.fillText(words.slice(mid).join(' '),256,320); }
+    responseTexture.needsUpdate = true;
+  }
+
+  const triangleMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.3,1.3), new THREE.MeshBasicMaterial({map:responseTexture, transparent:true})); triangleMesh.position.z=0.05; dieGroup.add(triangleMesh);
+
+  // Audio
+  let audioCtx = null;
+  function initAudio(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }
+  function playButtonClickSound(){ initAudio(); const osc=audioCtx.createOscillator(); const gain=audioCtx.createGain(); osc.type='sine'; osc.frequency.setValueAtTime(800,audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(200,audioCtx.currentTime+0.05); gain.gain.setValueAtTime(0.25,audioCtx.currentTime); gain.gain.linearRampToValueAtTime(0.01,audioCtx.currentTime+0.05); osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime+0.06); }
+  function playFluidSound(){ initAudio(); const bufferSize = Math.floor(audioCtx.sampleRate * 0.5); const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate); const data = buffer.getChannelData(0); for(let i=0;i<bufferSize;i++) data[i]=Math.random()*2-1; const noise = audioCtx.createBufferSource(); noise.buffer = buffer; const filter = audioCtx.createBiquadFilter(); filter.type='lowpass'; filter.frequency.setValueAtTime(150,audioCtx.currentTime); filter.frequency.linearRampToValueAtTime(450,audioCtx.currentTime+0.25); filter.frequency.linearRampToValueAtTime(120,audioCtx.currentTime+0.5); const gain = audioCtx.createGain(); gain.gain.setValueAtTime(0.45,audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.5); noise.connect(filter); filter.connect(gain); gain.connect(audioCtx.destination); noise.start(); }
+  function playImpactSound(){ initAudio(); const osc=audioCtx.createOscillator(); const gain=audioCtx.createGain(); osc.type='triangle'; osc.frequency.setValueAtTime(120,audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(30,audioCtx.currentTime+0.1); gain.gain.setValueAtTime(0.5,audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.1); osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime+0.12); }
+
+  // Interaction
+  let isAnimating=false; let targetRotationY=0; let resetTimer=null;
+  function askOracle(){
+    const qInput=document.getElementById('question');
+    if(!qInput.value.trim()){ alert('Haz una pregunta primero.'); return; }
+    if(isAnimating) return;
+    lastQuestion = qInput.value.trim(); document.getElementById('shareBtn').style.display='none';
+    playButtonClickSound(); if(resetTimer) clearTimeout(resetTimer);
+    isAnimating=true; playFluidSound(); if('vibrate' in navigator) navigator.vibrate([50,40,80]);
+    const pack = answerPacks[currentMode]; lastAnswer = pack[Math.floor(Math.random()*pack.length)]; updateResponseTexture(lastAnswer);
+    targetRotationY = Math.PI; let startTime = performance.now(); let impactPlayed=false;
+
+    function animateSequence(){
+      let elapsed = (performance.now()-startTime)/1000;
+      if(elapsed < 0.5){ dieGroup.position.z = -1.0; ballGroup.rotation.z = Math.sin(elapsed * 25) * 0.05; requestAnimationFrame(animateSequence);
+      } else if(elapsed < 1.8){ let progress = (elapsed - 0.5)/1.3; dieGroup.position.z = THREE.MathUtils.lerp(-1.0, -0.01, Math.pow(progress,0.6)); ballGroup.rotation.z = THREE.MathUtils.lerp(ballGroup.rotation.z,0,0.1); if(progress>0.85 && !impactPlayed){ playImpactSound(); impactPlayed=true; } requestAnimationFrame(animateSequence);
+      } else { ballGroup.rotation.z = 0; dieGroup.position.z = -0.01; isAnimating=false; document.getElementById('shareBtn').style.display='inline-block'; resetTimer = setTimeout(()=>{ targetRotationY = 0; isAnimating = true; document.getElementById('shareBtn').style.display='none'; let resetStart = performance.now(); function animateReset(){ let rElapsed = (performance.now()-resetStart)/1000; if(rElapsed<1.2){ ballGroup.rotation.y = THREE.MathUtils.lerp(ballGroup.rotation.y, 0, 0.05); ballGroup.rotation.x = THREE.MathUtils.lerp(ballGroup.rotation.x, 0, 0.05); requestAnimationFrame(animateReset);} else { ballGroup.rotation.y = 0; ballGroup.rotation.x = 0; dieGroup.position.z = -1.0; isAnimating=false; } } animateReset(); }, 10000); }
+    }
+    animateSequence();
+  }
+
+  function handleKey(e){ if(e.key === 'Enter') askOracle(); }
+
+  // Share / sticker render
+  function shareResult(){
+    const shareCanvas = document.createElement('canvas'); shareCanvas.width=1080; shareCanvas.height=1080; const sCtx = shareCanvas.getContext('2d');
+    sCtx.fillStyle = '#08090c'; sCtx.fillRect(0,0,1080,1080);
+    // render current three.js frame to the canvas by drawing renderer.domElement
+    renderer.render(scene, camera);
+    try { sCtx.drawImage(renderer.domElement, 40, 140, 1000, 800); } catch(e){ /* some browsers block drawing WebGL canvas cross-origin; ignore */ }
+    sCtx.fillStyle = '#ffffff'; sCtx.font = 'Bold 42px sans-serif'; sCtx.textAlign='center'; sCtx.fillText(`"${lastQuestion || ''}"`, 540, 100);
+    sCtx.fillStyle = '#66a3ff'; sCtx.font = '30px sans-serif'; sCtx.fillText(`Bola 22 Mágica • Modo ${currentMode.toUpperCase()}`, 540, 1020);
+
+    shareCanvas.toBlob(blob => {
+      if(!blob) return;
+      const file = new File([blob], 'bola22_respuesta.png', { type: 'image/png' });
+      if(navigator.share && navigator.canShare && navigator.canShare({ files: [file] })){ navigator.share({ title: 'Mi respuesta de Bola 22', text: `Pregunté "${lastQuestion}" y la Bola 22 respondió: ${lastAnswer}`, files: [file] }).catch(()=>{}); }
+      else { const link = document.createElement('a'); link.download='bola22_respuesta.png'; link.href = URL.createObjectURL(blob); link.click(); URL.revokeObjectURL(link.href); }
+    }, 'image/png');
+  }
+
+  // pointer controls
+  let isDragging=false; let prevMouse={x:0,y:0};
+  container.addEventListener('pointerdown', (e)=>{ initAudio(); if(resetTimer) clearTimeout(resetTimer); isDragging=true; prevMouse = {x:e.clientX, y:e.clientY}; });
+  window.addEventListener('pointermove', (e)=>{ if(!isDragging || isAnimating) return; ballGroup.rotation.y += (e.clientX - prevMouse.x) * 0.01; ballGroup.rotation.x += (e.clientY - prevMouse.y) * 0.01; targetRotationY = ballGroup.rotation.y; prevMouse = {x:e.clientX, y:e.clientY}; });
+  window.addEventListener('pointerup', ()=> isDragging = false);
+
+  // render loop
+  function animate(){ requestAnimationFrame(animate); if(isAnimating){ ballGroup.rotation.y = THREE.MathUtils.lerp(ballGroup.rotation.y, targetRotationY, 0.08); ballGroup.rotation.x = THREE.MathUtils.lerp(ballGroup.rotation.x, 0, 0.08); } if(!isAnimating && dieGroup.position.z > -0.2){ dieGroup.position.y = Math.sin(Date.now()*0.002)*0.012; } renderer.render(scene, camera); }
+  updateResponseTexture('HAZ UNA PREGUNTA'); animate();
+
+  window.addEventListener('resize', ()=>{ camera.aspect = container.clientWidth / Math.max(container.clientHeight,200); camera.updateProjectionMatrix(); renderer.setSize(container.clientWidth, container.clientHeight); });
+
+  // Service worker registration
+  if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
+  </script>
+</body>
+</html>
