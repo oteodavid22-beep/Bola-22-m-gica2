@@ -10,13 +10,11 @@ jobs:
     name: Build Android App Bundle
     runs-on: ubuntu-latest
     env:
-      ANDROID_SDK_ROOT: /usr/local/share/android-sdk
-      # Exponer secrets como env para que no se usen directamente en 'if' del YAML
+      ANDROID_SDK_ROOT: ${{ runner.tool_cache }}/android-sdk
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,17 +24,34 @@ jobs:
         with:
           node-version: '18'
 
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
       - name: Install npm dependencies
         run: |
           npm ci || npm install
 
-      - name: Ensure Capacitor CLI is available
+      - name: Build web assets (if present)
+        run: |
+          npm run build --if-present
+
+      - name: Ensure Capacitor CLI available
         run: |
           npm install @capacitor/cli @capacitor/core --no-save || true
 
-      - name: Sync Capacitor (copy web to Android)
+      - name: Ensure Android platform exists (Capacitor)
         run: |
-          npx cap sync android
+          if [ ! -d "android" ]; then
+            echo "Android folder missing — adding Android platform..."
+            npx cap add android || true
+          else
+            echo "Android folder exists"
+          fi
 
       - name: Setup Java (for Gradle)
         uses: actions/setup-java@v4
@@ -44,23 +59,16 @@ jobs:
           distribution: 'temurin'
           java-version: '11'
 
-      - name: Install Android SDK commandline tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget unzip
-          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
-          cd $ANDROID_SDK_ROOT/cmdline-tools
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -O cmdline-tools.zip
-          unzip -q cmdline-tools.zip
-          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools/latest
-          mv cmdline-tools/* $ANDROID_SDK_ROOT/cmdline-tools/latest/ || true
-          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
-          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+      - name: Install Android SDK (stable action)
+        uses: r0adkll/setup-android@v2
+        with:
+          api-level: 33
+          build-tools: '33.0.2'
+          cache: true
 
-      - name: Prepare keystore (decode secret or generate temporary keystore)
+      - name: Prepare keystore (decode secret or generate temporary)
         run: |
           mkdir -p android/keystore
-          # If a keystore base64 value was provided (non-empty) decode it; otherwise generate a temp keystore
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
             echo "Decoding keystore from secret..."
             echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/keystore/keystore.jks
@@ -78,6 +86,16 @@ jobs:
             ls -l android/keystore/keystore.jks
           fi
 
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
       - name: Build AAB (release)
         run: |
           cd android
@@ -89,7 +107,7 @@ jobs:
             exit 1
           fi
 
-          # determine store/key credentials (use secrets if present, otherwise temp values)
+          # choose credentials: prefer secrets, otherwise use generated temp values
           if [ -n "$ANDROID_KEYSTORE_PASSWORD" ]; then
             STORE_PASS="$ANDROID_KEYSTORE_PASSWORD"
           else
@@ -110,6 +128,7 @@ jobs:
 
           echo "Using keystore: $STORE_FILE"
           echo "Using alias: $KEY_ALIAS_VAL"
+
           ./gradlew bundleRelease \
             -Pandroid.injected.signing.store.file="$STORE_FILE" \
             -Pandroid.injected.signing.store.password="$STORE_PASS" \
@@ -120,7 +139,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bola22-aab
-          path: android/app/build/outputs/bundle/release/app-release.aab
+          path: android/app/build/outputs/bundle/release/*.aab
 
       - name: Done
         run: echo "Build finished. Download the AAB from the workflow artifacts."
