@@ -11,6 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ANDROID_SDK_ROOT: /usr/local/share/android-sdk
+      # Exponer secrets como env para que no se usen directamente en 'if' del YAML
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,24 +57,26 @@ jobs:
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
           yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT "platform-tools" "platforms;android-33" "build-tools;33.0.2"
 
-      - name: Decode Android keystore (from secret)
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      - name: Prepare keystore (decode secret or generate temporary keystore)
         run: |
           mkdir -p android/keystore
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/keystore/keystore.jks
-
-      - name: Generate temporary keystore (if none provided)
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 == '' }}
-        run: |
-          mkdir -p android/keystore
-          KEYSTORE_PATH=android/keystore/keystore.jks
-          KEY_ALIAS=temp_alias
-          KEY_PASS=temp_pass
-          STORE_PASS=temp_pass
-          keytool -genkeypair -v -keystore $KEYSTORE_PATH -alias $KEY_ALIAS -keyalg RSA -keysize 2048 -validity 10000 -storepass $STORE_PASS -keypass $KEY_PASS -dname "CN=Temp,O=Local,C=US"
-          echo "TEMP_KEY_ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
-          echo "TEMP_KEY_PASS=$KEY_PASS" >> $GITHUB_ENV
-          echo "TEMP_STORE_PASS=$STORE_PASS" >> $GITHUB_ENV
+          # If a keystore base64 value was provided (non-empty) decode it; otherwise generate a temp keystore
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "Decoding keystore from secret..."
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/keystore/keystore.jks
+            ls -l android/keystore/keystore.jks
+          else
+            echo "No keystore secret provided — generating temporary keystore for test build..."
+            KEYSTORE_PATH=android/keystore/keystore.jks
+            KEY_ALIAS=temp_alias
+            KEY_PASS=temp_pass
+            STORE_PASS=temp_pass
+            keytool -genkeypair -v -keystore $KEYSTORE_PATH -alias $KEY_ALIAS -keyalg RSA -keysize 2048 -validity 10000 -storepass $STORE_PASS -keypass $KEY_PASS -dname "CN=Temp,O=Local,C=US"
+            echo "TEMP_KEY_ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
+            echo "TEMP_KEY_PASS=$KEY_PASS" >> $GITHUB_ENV
+            echo "TEMP_STORE_PASS=$STORE_PASS" >> $GITHUB_ENV
+            ls -l android/keystore/keystore.jks
+          fi
 
       - name: Build AAB (release)
         run: |
@@ -81,22 +89,27 @@ jobs:
             exit 1
           fi
 
-          if [ -n "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" ]; then
-            STORE_PASS="${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
+          # determine store/key credentials (use secrets if present, otherwise temp values)
+          if [ -n "$ANDROID_KEYSTORE_PASSWORD" ]; then
+            STORE_PASS="$ANDROID_KEYSTORE_PASSWORD"
           else
             STORE_PASS="$TEMP_STORE_PASS"
           fi
-          if [ -n "${{ secrets.ANDROID_KEY_ALIAS }}" ]; then
-            KEY_ALIAS_VAL="${{ secrets.ANDROID_KEY_ALIAS }}"
+
+          if [ -n "$ANDROID_KEY_ALIAS" ]; then
+            KEY_ALIAS_VAL="$ANDROID_KEY_ALIAS"
           else
             KEY_ALIAS_VAL="$TEMP_KEY_ALIAS"
           fi
-          if [ -n "${{ secrets.ANDROID_KEY_PASSWORD }}" ]; then
-            KEY_PASS_VAL="${{ secrets.ANDROID_KEY_PASSWORD }}"
+
+          if [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            KEY_PASS_VAL="$ANDROID_KEY_PASSWORD"
           else
             KEY_PASS_VAL="$TEMP_KEY_PASS"
           fi
 
+          echo "Using keystore: $STORE_FILE"
+          echo "Using alias: $KEY_ALIAS_VAL"
           ./gradlew bundleRelease \
             -Pandroid.injected.signing.store.file="$STORE_FILE" \
             -Pandroid.injected.signing.store.password="$STORE_PASS" \
