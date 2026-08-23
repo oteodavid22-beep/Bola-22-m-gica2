@@ -1,0 +1,11 @@
+{
+  "name": "Bola 22 Mágica",
+  "short_name": "Bola22",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#071022",
+  "theme_color": "#071022",
+  "icons": [
+    { "src": "./assets/icon.svg", "sizes": "512x512", "type": "image/svg+xml" }
+  ]
+}

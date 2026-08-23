@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Bola 22 Mágica</title>
+  <meta name="description" content="Bola 22 Mágica - imita la bola mágica retro con modos y compartir" />
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./assets/icon.svg">
+  <meta name="theme-color" content="#071022">
+  <style>
+    :root{--bg:#0b1220;--card:#0f1724;--accent:#ffcc00;color:#fff}
+    html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    body{display:flex;flex-direction:column;align-items:center;justify-content:space-between;background:radial-gradient(circle at center,#1b1d28 0%,#08090c 100%);color:#fff;min-height:100vh}
+    h1{margin:15px 0 6px;font-size:1.6rem;font-weight:300;letter-spacing:3px;color:#f0f0f0}
+    #canvas-container{width:100%;height:48vh;display:flex;align-items:center;justify-content:center}
+    .ui-container{width:100%;max-width:360px;padding:15px 20px 25px;box-sizing:border-box;display:flex;flex-direction:column;gap:10px}
+    input{width:100%;padding:12px 16px;border-radius:25px;border:1px solid #333;background:rgba(255,255,255,0.04);color:#fff;font-size:14px;text-align:center}
+    .action-row{display:flex;gap:8px}
+    .action-btn{flex:1;padding:12px;border-radius:20px;border:0;background:var(--accent);color:#111;font-weight:800;cursor:pointer}
+    .share-btn{background:transparent;border:1px solid rgba(255,255,255,.08);color:#ddd;padding:10px;font-size:13px;display:none}
+    .hint{font-size:12px;color:#99a;text-align:center}
+    footer{margin:12px 0 18px;font-size:12px;color:#99a}
+  </style>
+</head>
+<body>
+  <h1>BOLA 22 MÁGICA</h1>
+  <div id="canvas-container" aria-hidden="true"></div>
+
+  <div class="ui-container">
+    <input id="question" type="text" placeholder="Escribe tu pregunta de SÍ o NO..." />
+    <div class="action-row">
+      <button class="action-btn" id="askBtn">Agitar y Consultar</button>
+      <button id="shareBtn" class="share-btn">Compartir</button>
+    </div>
+    <div class="hint">Arrastra para girar 360° · Cambia de modo para distintas vibras</div>
+  </div>
+
+  <footer>Hecha con Capacitor · Lista para compilar en Android</footer>
+
+  <!-- three.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <script>
+  function webglSupported() {
+    try {
+      const canvas = document.createElement('canvas');
+      return !!(window.WebGLRenderingContext && (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
+    } catch(e) { return false; }
+  }
+
+  window.addEventListener('load', () => {
+    if (!webglSupported()) {
+      document.getElementById('canvas-container').innerHTML = '<div style="color:#fff;padding:20px;text-align:center">Tu navegador no soporta WebGL. Prueba en Chrome/Edge en móvil o en desktop.</div>';
+      return;
+    }
+
+    // --- Minimal three.js scene that renders the ball ---
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / Math.max(container.clientHeight, 200), 0.1, 1000);
+    camera.position.z = 6;
+    const renderer = new THREE.WebGLRenderer({antialias:true,alpha:true, preserveDrawingBuffer:true});
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1,2));
+    container.appendChild(renderer.domElement);
+
+    const light = new THREE.AmbientLight(0xffffff,0.9); scene.add(light);
+    const dirLight = new THREE.DirectionalLight(0xffffff,0.8); dirLight.position.set(5,5,5); scene.add(dirLight);
+
+    const ballGroup = new THREE.Group(); scene.add(ballGroup);
+    const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(2,64,64), new THREE.MeshStandardMaterial({color:0x800020, roughness:0.1, metalness:0.2}));
+    ballGroup.add(ballMesh);
+
+    // white circle with 22
+    const canvas22 = document.createElement('canvas'); canvas22.width=512; canvas22.height=512; const ctx22 = canvas22.getContext('2d');
+    ctx22.fillStyle='#ffffff'; ctx22.beginPath(); ctx22.arc(256,256,200,0,Math.PI*2); ctx22.fill();
+    ctx22.fillStyle='#000000'; ctx22.font='Bold 220px Arial'; ctx22.textAlign='center'; ctx22.fillText('22',256,320);
+    const poolTag = new THREE.Mesh(new THREE.PlaneGeometry(1.6,1.6), new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(canvas22), transparent:true}));
+    poolTag.position.z = 2.01; ballGroup.add(poolTag);
+
+    // window/frame
+    const windowGroup = new THREE.Group(); windowGroup.position.z=-2; windowGroup.rotation.y=Math.PI; ballGroup.add(windowGroup);
+    const frameMesh = new THREE.Mesh(new THREE.RingGeometry(0.85,1.1,32), new THREE.MeshBasicMaterial({color:0x111111})); frameMesh.position.z=0.02; windowGroup.add(frameMesh);
+    const glassMesh = new THREE.Mesh(new THREE.CircleGeometry(0.85,32), new THREE.MeshBasicMaterial({color:0x001a4d, transparent:true, opacity:0.85})); glassMesh.position.z=0.01; windowGroup.add(glassMesh);
+
+    // simple response triangle
+    const responseCanvas = document.createElement('canvas'); responseCanvas.width=512; responseCanvas.height=512; const responseCtx = responseCanvas.getContext('2d');
+    const responseTexture = new THREE.CanvasTexture(responseCanvas);
+    function updateResponseTexture(text){
+      responseCtx.clearRect(0,0,512,512);
+      responseCtx.fillStyle='#0044ff'; responseCtx.beginPath(); responseCtx.moveTo(256,50); responseCtx.lineTo(460,410); responseCtx.lineTo(52,410); responseCtx.closePath(); responseCtx.fill();
+      responseCtx.fillStyle='#ffffff'; responseCtx.font='Bold 40px Arial'; responseCtx.textAlign='center'; responseCtx.textBaseline='middle';
+      const words = text.split(' ');
+      if(words.length<=2){ responseCtx.fillText(text,256,290); } else { const mid=Math.ceil(words.length/2); responseCtx.fillText(words.slice(0,mid).join(' '),256,260); responseCtx.fillText(words.slice(mid).join(' '),256,320); }
+      responseTexture.needsUpdate = true;
+    }
+    const triangleMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.3,1.3), new THREE.MeshBasicMaterial({map:responseTexture, transparent:true})); triangleMesh.position.z=0.05; windowGroup.add(triangleMesh);
+
+    // interactions
+    let isAnimating=false; let targetRotationY=0; let resetTimer=null;
+    const packs = ["SÍ","NO","PROBABLE","DUDOSO","INTENTO OTRA VEZ"];
+    function askOracle(){
+      const q = (document.getElementById('question').value||'').trim();
+      if(!q){ alert('Haz una pregunta primero.'); return; }
+      if(isAnimating) return; isAnimating=true; updateResponseTexture(packs[Math.floor(Math.random()*packs.length)]); targetRotationY = Math.PI; let start = performance.now();
+      function seq(){ let elapsed=(performance.now()-start)/1000; if(elapsed<1.2){ ballGroup.rotation.y += 0.1; requestAnimationFrame(seq);} else { isAnimating=false; resetTimer = setTimeout(()=>{ targetRotationY=0; },3000);} }
+      seq();
+    }
+    document.getElementById('askBtn').addEventListener('click', askOracle);
+
+    function animate(){ requestAnimationFrame(animate); if(isAnimating){ ballGroup.rotation.y = THREE.MathUtils.lerp(ballGroup.rotation.y, targetRotationY, 0.08); } renderer.render(scene, camera); }
+    updateResponseTexture('HAZ UNA PREGUNTA'); animate();
+
+    window.addEventListener('resize', ()=>{ camera.aspect = container.clientWidth / Math.max(container.clientHeight,200); camera.updateProjectionMatrix(); renderer.setSize(container.clientWidth, container.clientHeight); });
+
+    // register service worker after load
+    if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
+  });
+  </script>
+</body>
+</html>
